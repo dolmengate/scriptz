@@ -1,0 +1,21 @@
+#! /bin/bash
+
+programname=$0
+
+function usage {
+    echo "usage: $programname searchtext [directory]"
+    exit 1
+}
+
+[ -z $1 ] && usage
+
+
+DIR=$2
+if [ -z $DIR ]; then
+	DIR=$(pwd)
+fi
+
+find "$DIR" -type f -name "*.jar" | while read JAR; do
+	echo "Searching JAR: $JAR"
+	echo --- $(zipgrep $1 "$JAR")
+done

@@ -1,5 +1,4 @@
 ﻿param(
-	[Parameter(Mandatory=$True)]
 	[string]$SqlDir,
     [Parameter(Mandatory=$True)]
 	[string]$UserName,
@@ -9,9 +8,10 @@
 	[string]$DbName
 )
 
+
 Get-ChildItem $SqlDir -Filter *.sql | 
 Foreach-Object {
     $qualName = $_.FullName
-    cmd.exe /c echo exit | sqlplus $UserName/$Password@$DbName @$qualName
+    cmd.exe /c echo "exit;" | sqlplus $UserName/$Password@$DbName @$qualName
     "----------- $qualName completed ------------"
 }
