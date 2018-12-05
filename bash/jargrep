@@ -8,6 +8,9 @@ function usage {
 }
 
 [ -z $1 ] && usage
+if [ $FORMAT != "jar" ] || [ $FORMAT != "war" ] || [ $FORMAT != "ear" ]; then
+	usage
+fi
 
 
 DIR=$2
@@ -15,7 +18,13 @@ if [ -z $DIR ]; then
 	DIR=$(pwd)
 fi
 
-find "$DIR" -type f -name "*.jar" | while read JAR; do
+FORMAT=$3
+
+if [ -z $FORMAT ]; then
+	FORMAT=jar
+fi
+
+find "$DIR" -type f -name "*.$FORMAT" | while read JAR; do
 	echo "Searching JAR: $JAR"
 	echo --- $(zipgrep $1 "$JAR")
 done
