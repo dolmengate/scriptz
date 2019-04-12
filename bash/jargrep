@@ -3,24 +3,24 @@
 programname=$0
 
 function usage {
-    echo "usage: $programname searchtext [directory]"
+    echo "usage: $programname searchtext [directory] [format]"
     exit 1
 }
 
-[ -z $1 ] && usage
+[ -z "$1" ] && usage
 if [ $FORMAT != "jar" ] || [ $FORMAT != "war" ] || [ $FORMAT != "ear" ]; then
 	usage
 fi
 
 
 DIR=$2
-if [ -z $DIR ]; then
+if [ -z "$DIR" ]; then
 	DIR=$(pwd)
 fi
 
 FORMAT=$3
 
-if [ -z $FORMAT ]; then
+if [ -z "$FORMAT" ]; then
 	FORMAT=jar
 fi
 

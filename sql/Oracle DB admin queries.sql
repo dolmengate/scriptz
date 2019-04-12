@@ -1,3 +1,5 @@
+-- grant user privilege or privileges
+GRANT ALTER SESSION TO XSTORE_1500_800;
 
 -- find user privileges
 SELECT * FROM DBA_SYS_PRIVS WHERE grantee = 'OWNER';
