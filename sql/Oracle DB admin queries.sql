@@ -1,3 +1,9 @@
+-- create new user
+CREATE USER user_name_here IDENTIFIED BY user_pw_here DEFAULT TABLESPACE users TEMPORARY TABLESPACE TEMP QUOTA UNLIMITED ON users;
+
+-- create new role
+CREATE ROLE schema_owner_role;
+
 -- grant user privilege or privileges
 GRANT ALTER SESSION TO XSTORE_1500_800;
 
@@ -24,6 +30,25 @@ commit
 
 select * from all_synonyms WHERE table_owner = 'OWNER'
 
+-- grant link creation privilege
+GRANT CREATE DATABASE LINK TO DBOWNER
+
+-- create a link to a remote database connecting as the remote user schemao
+CREATE SHARED DATABASE LINK schemao_00101_3
+CONNECT TO schemao IDENTIFIED BY schemao AUTHENTICATED BY schemao IDENTIFIED BY schemao
+USING '(DESCRIPTION = (ADDRESS = (PROTOCOL = TCP)(HOST = bo-test1.fffo.local)(PORT = 1521)) (CONNECT_DATA = (SERVER = DEDICATED) (SERVICE_NAME = ORCL00101)))'
+
+-- delete a created database link
+DROP DATABASE LINK schemao_00101_3;
+
+-- view user's database link
+SELECT * FROM user_db_links;
+
+-- set service names to be referenced by database link
+ ALTER system SET SERVICE_NAMES='ORCL00101', 'BOPRDDB'
+
+-- view various database parameters
+select name, value from v$parameter where name in ('db_name', 'db_domain', 'global_names', 'service_names');  
 
 -- find max open cursors at any point vs max cursors
 SELECT  max(a.value) as highest_open_cur, p.value as max_open_cur 
