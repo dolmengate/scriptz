@@ -54,7 +54,7 @@ def get_pk_for_table(conn, table: str, owner_user: str):
     # first check for an actual constraint
     pk = find_pk_constraint_for_table(conn, table, owner_user)
     if pk:
-        return pk   # fixme this is returning a Cursor?
+        return pk
     # else use the first 'ID' column in the table
     else:
         return find_first_id_col_for_tab(conn, table, owner_user)
@@ -71,22 +71,32 @@ def find_first_id_col_for_tab(conn, table, table_owner):
             ORDER BY column_id) 
         WHERE ROWNUM  = 1
         """
-    execute_query(conn, stmt, owner_user=table_owner, tab=table)
+    return execute_query(conn, stmt, owner_user=table_owner, tab=table).fetchone()
 
 
 def find_pk_constraint_for_table(conn, table: str, owner_user: str):
-    stmt = """
-    SELECT *
-    FROM all_constraints
-    WHERE table_name = :tab 
-    AND owner = :owner_user 
-    AND constraint_type = 'P'
     """
-    return execute_query(conn, stmt, tab=table, owner_user=owner_user)
+    Find and return the list of columns that make up a table's Primary key
+    :param conn:
+    :param table:
+    :param owner_user:
+    :return:    a tuple of columns for @table's PK
+    """
+
+    stmt = """
+    SELECT acc.column_name
+    FROM all_constraints ac,  all_cons_columns acc 
+    WHERE acc.constraint_name = ac.constraint_name 
+    AND ac.table_name = :tab
+    AND ac.owner = :owner_user
+    AND ac.constraint_type = 'P'
+    """
+    return tuple([col[0] for col in execute_query(conn, stmt, tab=table, owner_user=owner_user)])
 
 
 def compare_data(table1: str, table2: str, cols: list):
     """
+    Direct comparisons won't work since records have timestamps, must compare primary keys only
     :param table1:
     :param table2:
     :param cols:  columns to compare by
@@ -123,7 +133,11 @@ def main():
         port_no=args.port_no)
     tables = [table_name[0] for table_name in select_table_names_for_user(conn, args.username.upper())]
     for t in tables:
-        print(get_pk_for_table(conn, t, args.username.upper()))
+        pk = get_pk_for_table(conn, t, args.username.upper())
+        print(pk)
+        # filter out tables that have no PK constraint or columns that begin with "ID"
+        # if pk:
+
 
 
 if __name__ == '__main__':
