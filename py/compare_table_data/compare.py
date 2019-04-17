@@ -1,5 +1,6 @@
 import cx_Oracle
 import argparse
+import jprops
 
 
 def trace(logged_func):
@@ -110,7 +111,7 @@ def find_pk_constraint_for_table(conn, table: str, owner_user: str):
     return tuple([col[0] for col in execute_query(conn, stmt, tab=table, owner_user=owner_user)])
 
 
-def subtract_row_sets(conn1, conn2, table: str, cols: tuple):
+def subtract_row_sets(conn1, conn2, table: str, cols: tuple, reverse=False):
     """
     Compare the data in @table from @conn1 and @conn2 by columns @cols
     :param table:
@@ -142,6 +143,8 @@ def subtract_row_sets(conn1, conn2, table: str, cols: tuple):
     total_rows = int(c2.execute(select_count).fetchone()[0])
     set2 = set(c1.execute(select_all).fetchmany(numRows=total_rows))
 
+    if reverse:
+        return tuple(set2 - set1)
     return tuple(set1 - set2)
 
 
@@ -157,25 +160,64 @@ def print_record(table1: str, table2: str, record):
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('hostname', help='The name of the network host the DB resides on')
-    parser.add_argument('db_name', help='The SID of the database to connect to on the \'hostname\' argument')
-    parser.add_argument('port_no', help='The port number that \'db_name\' is listening on on host \'hostname\'')
-    parser.add_argument('username', help='The name of the user to connect to \'db_name\' with')
-    parser.add_argument('passwd', help='Password for the user supplied by \'username\'')
-    args = parser.parse_args(['localhost', 'orcl', '1522', 'owner', 'dbowner'])
+    parser = argparse.ArgumentParser(description='Find data in DB1 that isn\'t in DB2')
+    parser.add_argument('hostname1', help='The name of the network host DB1 resides on')
+    parser.add_argument('db_name1', help='The SID of DB1 to connect to on \'hostname1\'')
+    parser.add_argument('port_no1', help='The port number that \'db_name1\' is listening on on host \'hostname1\'')
+    parser.add_argument('username1', help='The name of the user to connect to \'db_name1\' with')
+    parser.add_argument('passwd1', help='Password for the user supplied by \'username1\'')
 
-    conn = connect(
-        username=args.username,
-        password=args.passwd,
-        hostname=args.hostname,
-        db_name=args.db_name,
-        port_no=args.port_no)
-    tables = [result_row[0] for result_row in select_table_names_for_user(conn, args.username.upper())]
+    parser.add_argument('hostname2', help='The name of the network host DB2 resides on')
+    parser.add_argument('db_name2', help='The SID of DB2 to connect to on \'hostname2\'')
+    parser.add_argument('port_no2', help='The port number that \'db_name2\' is listening on on host \'hostname2\'')
+    parser.add_argument('username2', help='The name of the user to connect to \'db_name2\' with')
+    parser.add_argument('passwd2', help='Password for the user supplied by \'username2\'')
+
+    parser.add_argument('-r', '--reverse',
+                        help='Find data in DB2 not in DB1, the opposite of a normal run',
+                        action='store_true')
+
+    try:
+        properties = jprops.load_properties('./dbs.properties')
+        username1 = properties['db1.username']
+        password1 = properties['db1.passwd']
+        hostname1 = properties['db1.hostname']
+        dbname1 = properties['db1.db_name']
+        port_no1 = properties['db1.port_no']
+
+        username2 = properties['db2.username']
+        password2 = properties['db2.passwd']
+        hostname2 = properties['db2.hostname']
+        dbname2 = properties['db2.db_name']
+        port_no2 = properties['db2.port_no']
+
+        args = parser.parse_args([
+            username1, password1, hostname1, dbname1, port_no1,
+            username2, password2, hostname2, dbname2, port_no2,
+        ])
+
+    except Exception:
+        print('no file detected, using CLI input')
+        args = parser.parse_args()
+
+    conn1 = connect(
+        username=args.username1,
+        password=args.passwd1,
+        hostname=args.hostname1,
+        db_name=args.db_name1,
+        port_no=args.port_no1)
+
+    conn2 = connect(
+        username=args.username2,
+        password=args.passwd2,
+        hostname=args.hostname2,
+        db_name=args.db_name2,
+        port_no=args.port_no2)
+    tables = [result_row[0] for result_row in select_table_names_for_user(conn1, args.username.upper())]
     for t in tables:
-        pk = get_pk_for_table(conn, t, args.username.upper())
+        pk = get_pk_for_table(conn1, t, args.username.upper())
         if pk:  # filter tables that have no PK constraint or columns that begin with "ID"
-            diff_rows = subtract_row_sets(conn, conn, t, pk)
+            diff_rows = subtract_row_sets(conn1, conn2, t, pk, args.reverse)
             if diff_rows:
                 for row in diff_rows:
                     print(row)
