@@ -119,6 +119,15 @@ def find_pk_constraint_for_table(conn, table: str, owner_user: str):
     return tuple([col[0] for col in execute_query(conn, stmt, tab=table, owner_user=owner_user)])
 
 
+def rows_in_table(conn, table):
+
+    select_count = f"""
+    SELECT COUNT(*) FROM {table}
+    """
+    curs = conn.cursor()
+    return curs.execute(select_count).fetchone()[0]
+
+
 def subtract_row_sets(conn1, conn2, table: str, cols: tuple, reverse=False, logfile=sys.stdout):
     """
     Compare the data in @table from @conn1 and @conn2 by columns @cols
@@ -130,10 +139,6 @@ def subtract_row_sets(conn1, conn2, table: str, cols: tuple, reverse=False, logf
     :return: rows in table1 not in table2 as compared by cols
     """
 
-    select_count = f"""
-    SELECT COUNT(*) FROM {table}
-    """
-
     columns = str(cols).lstrip('(').rstrip(')').replace('\'', '').rstrip(',')
     select_all = f"""
     SELECT {columns} 
@@ -143,15 +148,16 @@ def subtract_row_sets(conn1, conn2, table: str, cols: tuple, reverse=False, logf
     c1 = conn1.cursor()
     c2 = conn2.cursor()
 
-    # execute_query failing with ORA-00903: invalid table name ??? used string.format instead
+    # fixme execute_query failing with ORA-00903: invalid table name ??? used string.format instead
+    # fixme mixing connections and cursors as parameters D:
 
     # ensure the entire table is fetched by setting cursor size to no. of rows that will return
-    total_rows = c1.execute(select_count).fetchone()[0]
-    t1_data = set(c1.execute(select_all).fetchmany(numRows=total_rows))
+    total_rows_db1 = rows_in_table(conn1, table)
+    t1_data = set(c1.execute(select_all).fetchmany(numRows=total_rows_db1))
 
     try:
-        total_rows = int(c2.execute(select_count).fetchone()[0])
-        t2_data = set(c1.execute(select_all).fetchmany(numRows=total_rows))
+        total_rows_db2 = rows_in_table(conn2, table)
+        t2_data = set(c1.execute(select_all).fetchmany(numRows=total_rows_db2))
     except cx_Oracle.DatabaseError as e:
         if 'ORA-00942' in str(e):
             print(f'table {table} does not exist in DB2, comparison cannot continue', file=logfile)
@@ -159,6 +165,7 @@ def subtract_row_sets(conn1, conn2, table: str, cols: tuple, reverse=False, logf
         else:
             raise e
 
+    # fixme also return total rows
     if reverse:
         return tuple(t2_data - t1_data)
     return tuple(t1_data - t2_data)
@@ -188,8 +195,12 @@ def compare_table_data(args, logfile):
     for t in user_tables:
         pk = get_pk_for_table(conn1, t, args.username1.upper())
         if pk:  # filter tables that have no PK constraint or columns that begin with "ID"
-            print(f'========== {t} ==========', file=logfile)
             diff_rows = subtract_row_sets(conn1, conn2, t, pk, args.reverse, logfile=logfile)
+            total_rows = rows_in_table(conn1, t)  # fixme this should print DB2's total rows if --reverse
+            print(f'========== {t} ==========, '
+                  f'diff: {len(diff_rows) if diff_rows else "x"}, '
+                  f'total: {total_rows} ',
+                  file=logfile)
             if diff_rows:
                 for row in diff_rows:
                     print(row, file=logfile)
