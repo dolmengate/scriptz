@@ -10,9 +10,9 @@ def trace(logged_func):
     first arg must be the object being logged (a subclass of LoggedObject)
     """
     def wrapper(*args, **kwargs):
-        print('entering function \'{}\' with args {}'.format(logged_func.__name__, args))
+        print(f'entering function \'{logged_func.__name__}\' with args {args}')
         val = logged_func(*args, **kwargs)
-        print('exited function \'{}\' with return value \'{}\''.format(logged_func.__name__, val))
+        print(f'exited function \'{logged_func.__name__}\' with return value \'{val}\'')
         return val
     return wrapper
 
@@ -27,17 +27,20 @@ def connect(username: str, password: str, hostname: str, db_name: str, port_no: 
     :return: a Connection object
     """
     conn_str = cx_Oracle.makedsn(host=hostname, port=port_no, sid=db_name)
+    print(f'connecting to DB with connection string: {conn_str}')
     return cx_Oracle.connect(username, password, conn_str)
 
 
-def execute_query(conn, statement: str, **kwargs):
+def execute_query(conn, statement: str, debug=False, **kwargs):
     """
     :param conn:
     :param statement:
+    :param debug: enable SQL output for debugging
     :param kwargs:
     :return: a Cursor object
     """
-    print('executing statement: {} with positional args {}'.format(statement, kwargs))
+    if debug:
+        print(f'executing statement: {statement} with positional args {kwargs}')
     cursor = conn.cursor()
     cursor.execute(statement, kwargs)
     return cursor
@@ -118,34 +121,35 @@ def subtract_row_sets(conn1, conn2, table: str, cols: tuple, reverse=False):
     :param conn2:
     :param conn1:
     :param cols: tuple of columns to compare by
+    :param reverse: subtract table2 rows from table1 rows instead of the opposite
     :return: rows in table1 not in table2 as compared by cols
     """
 
-    select_count = """
+    select_count = f"""
     SELECT COUNT(*) FROM {table}
-    """.format(table=table)
+    """
 
-    select_all = """
-    SELECT {cols} 
+    columns = str(cols).lstrip('(').rstrip(')').replace('\'', '').rstrip(',')
+    select_all = f"""
+    SELECT {columns} 
     FROM {table} 
-    """.format(cols=str(cols).lstrip('(').rstrip(')').replace('\'', '').rstrip(','),
-               table=table)
+    """
 
     c1 = conn1.cursor()
     c2 = conn2.cursor()
 
     # execute_query failing with ORA-00903: invalid table name ??? used string.format instead
 
-    # ensure the entire table is fetched by setting cursor size to rows that will return
+    # ensure the entire table is fetched by setting cursor size to no. of rows that will return
     total_rows = c1.execute(select_count).fetchone()[0]
-    set1 = set(c1.execute(select_all).fetchmany(numRows=total_rows))
+    t1_data = set(c1.execute(select_all).fetchmany(numRows=total_rows))
 
     total_rows = int(c2.execute(select_count).fetchone()[0])
-    set2 = set(c1.execute(select_all).fetchmany(numRows=total_rows))
+    t2_data = set(c1.execute(select_all).fetchmany(numRows=total_rows))
 
     if reverse:
-        return tuple(set2 - set1)
-    return tuple(set1 - set2)
+        return tuple(t2_data - t1_data)
+    return tuple(t1_data - t2_data)
 
 
 def print_record(table1: str, table2: str, record):
@@ -160,7 +164,7 @@ def print_record(table1: str, table2: str, record):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Find data in DB1 that isn\'t in DB2')
+    parser = argparse.ArgumentParser(description='Find data in DB1 that isn\'t in DB2. Schema must be identical. ')
     parser.add_argument('hostname1', help='The name of the network host DB1 resides on')
     parser.add_argument('db_name1', help='The SID of DB1 to connect to on \'hostname1\'')
     parser.add_argument('port_no1', help='The port number that \'db_name1\' is listening on on host \'hostname1\'')
@@ -178,24 +182,26 @@ def main():
                         action='store_true')
 
     try:
-        properties = jprops.load_properties('./dbs.properties')
-        username1 = properties['db1.username']
-        password1 = properties['db1.passwd']
-        hostname1 = properties['db1.hostname']
-        dbname1 = properties['db1.db_name']
-        port_no1 = properties['db1.port_no']
+        with open('dbs.properties') as p:
+            properties = jprops.load_properties(p)
 
-        username2 = properties['db2.username']
-        password2 = properties['db2.passwd']
-        hostname2 = properties['db2.hostname']
-        dbname2 = properties['db2.db_name']
-        port_no2 = properties['db2.port_no']
+            username1 = properties['db1.username']
+            password1 = properties['db1.passwd']
+            hostname1 = properties['db1.hostname']
+            dbname1 = properties['db1.db_name']
+            port_no1 = properties['db1.port_no']
 
-        args = parser.parse_args([
-            username1, password1, hostname1, dbname1, port_no1,
-            username2, password2, hostname2, dbname2, port_no2,
-        ])
+            username2 = properties['db2.username']
+            password2 = properties['db2.passwd']
+            hostname2 = properties['db2.hostname']
+            dbname2 = properties['db2.db_name']
+            port_no2 = properties['db2.port_no']
 
+            args = parser.parse_args([
+                hostname1, dbname1, port_no1, username1, password1,
+                hostname2, dbname2, port_no2, username2, password2,
+            ])
+            print(args)
     except Exception:
         print('no file detected, using CLI input')
         args = parser.parse_args()
@@ -205,7 +211,8 @@ def main():
         password=args.passwd1,
         hostname=args.hostname1,
         db_name=args.db_name1,
-        port_no=args.port_no1)
+        port_no=args.port_no1
+    )
 
     conn2 = connect(
         username=args.username2,
@@ -213,16 +220,17 @@ def main():
         hostname=args.hostname2,
         db_name=args.db_name2,
         port_no=args.port_no2)
-    tables = [result_row[0] for result_row in select_table_names_for_user(conn1, args.username.upper())]
-    for t in tables:
-        pk = get_pk_for_table(conn1, t, args.username.upper())
+
+    user_tables = [result_row[0] for result_row in select_table_names_for_user(conn1, args.username1.upper())]
+    for t in user_tables:
+        pk = get_pk_for_table(conn1, t, args.username1.upper())
         if pk:  # filter tables that have no PK constraint or columns that begin with "ID"
             diff_rows = subtract_row_sets(conn1, conn2, t, pk, args.reverse)
             if diff_rows:
                 for row in diff_rows:
                     print(row)
         else:
-            print('table {} has no primary key constraint or column that begins with \'ID_\''.format(t))
+            print(f'table {t} has no primary key constraint or column that begins with \'ID_\'')
 
 
 if __name__ == '__main__':
