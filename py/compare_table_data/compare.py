@@ -58,6 +58,7 @@ def select_table_names_for_user(conn, user: str):
     SELECT DISTINCT table_name
     FROM all_tab_cols 
     WHERE owner = :owner_user
+    ORDER BY table_name ASC
     """
     return execute_query(conn, stmt, owner_user=user)
 
@@ -144,8 +145,15 @@ def subtract_row_sets(conn1, conn2, table: str, cols: tuple, reverse=False):
     total_rows = c1.execute(select_count).fetchone()[0]
     t1_data = set(c1.execute(select_all).fetchmany(numRows=total_rows))
 
-    total_rows = int(c2.execute(select_count).fetchone()[0])
-    t2_data = set(c1.execute(select_all).fetchmany(numRows=total_rows))
+    try:
+        total_rows = int(c2.execute(select_count).fetchone()[0])
+        t2_data = set(c1.execute(select_all).fetchmany(numRows=total_rows))
+    except cx_Oracle.DatabaseError as e:
+        if 'ORA-00942' in str(e):
+            print(f'table {table} does not exist in DB2, comparison cannot continue')
+            return
+        else:
+            raise e
 
     if reverse:
         return tuple(t2_data - t1_data)
@@ -201,7 +209,6 @@ def main():
                 hostname1, dbname1, port_no1, username1, password1,
                 hostname2, dbname2, port_no2, username2, password2,
             ])
-            print(args)
     except Exception:
         print('no file detected, using CLI input')
         args = parser.parse_args()
@@ -225,6 +232,7 @@ def main():
     for t in user_tables:
         pk = get_pk_for_table(conn1, t, args.username1.upper())
         if pk:  # filter tables that have no PK constraint or columns that begin with "ID"
+            print(f'========== {t} ==========')
             diff_rows = subtract_row_sets(conn1, conn2, t, pk, args.reverse)
             if diff_rows:
                 for row in diff_rows:
