@@ -4,6 +4,33 @@ import cx_Oracle
 import argparse
 import jprops
 
+with open('dbs.properties') as p:
+    properties = jprops.load_properties(p)
+
+    f_tables = properties['tables']
+
+    f_username1 = properties['db1.username']
+    f_password1 = properties['db1.passwd']
+    f_hostname1 = properties['db1.hostname']
+    f_dbname1 = properties['db1.db_name']
+    f_port_no1 = properties['db1.port_no']
+
+    f_username2 = properties['db2.username']
+    f_password2 = properties['db2.passwd']
+    f_hostname2 = properties['db2.hostname']
+    f_dbname2 = properties['db2.db_name']
+    f_port_no2 = properties['db2.port_no']
+
+    f_reverse_flag = True == properties['reverse.flag']
+
+    f_admin_flag = True == properties['admin.flag']
+
+    f_admin_username1 = properties['admin.db1.username']
+    f_admin_passwd1 = properties['admin.db1.passwd']
+
+    f_admin_username2 = properties['admin.db2.username']
+    f_admin_passwd2 = properties['admin.db2.passwd']
+
 
 def trace(logged_func):
     """
@@ -120,7 +147,6 @@ def find_pk_constraint_for_table(conn, table: str, owner_user: str):
 
 
 def rows_in_table(conn, table):
-
     select_count = f"""
     SELECT COUNT(*) FROM {table}
     """
@@ -157,10 +183,10 @@ def subtract_row_sets(conn1, conn2, table: str, cols: tuple, reverse=False, logf
 
     try:
         total_rows_db2 = rows_in_table(conn2, table)
-        t2_data = set(c1.execute(select_all).fetchmany(numRows=total_rows_db2))
+        t2_data = set(c2.execute(select_all).fetchmany(numRows=total_rows_db2))
     except cx_Oracle.DatabaseError as e:
         if 'ORA-00942' in str(e):
-            print(f'table {table} does not exist in DB2, comparison cannot continue', file=logfile)
+            print('table does not exist in DB2, comparison cannot continue', file=logfile)
             return
         else:
             raise e
@@ -171,8 +197,7 @@ def subtract_row_sets(conn1, conn2, table: str, cols: tuple, reverse=False, logf
     return tuple(t1_data - t2_data)
 
 
-def compare_table_data(args, logfile):
-
+def compare_domain(args, logfile):
     conn1 = connect(
         username=args.username1,
         password=args.passwd1,
@@ -192,6 +217,8 @@ def compare_table_data(args, logfile):
     )
 
     user_tables = [result_row[0] for result_row in select_table_names_for_user(conn1, args.username1.upper())]
+    if args.tables:     # filter by '--tables'
+        user_tables = [table for table in user_tables if table in args.tables]
     for t in user_tables:
         pk = get_pk_for_table(conn1, t, args.username1.upper())
         if pk:  # filter tables that have no PK constraint or columns that begin with "ID"
@@ -208,8 +235,7 @@ def compare_table_data(args, logfile):
             print(f'table {t} has no primary key constraint or column that begins with \'ID_\'', file=logfile)
 
 
-def compare_admin_cfgs(args, logfile):
-
+def compare_admin(args, logfile):
     conn1 = connect(
         username=args.admin_username1,
         password=args.admin_passwd1,
@@ -230,78 +256,105 @@ def compare_admin_cfgs(args, logfile):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Find data in DB1 that isn\'t in DB2. Schema must be identical. ')
-    parser.add_argument('hostname1', help='The name of the network host DB1 resides on')
-    parser.add_argument('db_name1', help='The SID of DB1 to connect to on \'hostname1\'')
-    parser.add_argument('port_no1', help='The port number that \'db_name1\' is listening on on host \'hostname1\'')
-    parser.add_argument('username1', help='The name of the user to connect to \'db_name1\' with')
-    parser.add_argument('passwd1', help='Password for the user supplied by \'username1\'')
+    parser = argparse.ArgumentParser(
+        description='Find data in DB1 that isn\'t in DB2. Schema must be identical.\n'
+                    'Compares records in each table by primary key. Output is a list of records '
+                    '(represented by primary key) in DB1 that do not exist in DB2'
+    )
 
-    parser.add_argument('hostname2', help='The name of the network host DB2 resides on')
-    parser.add_argument('db_name2', help='The SID of DB2 to connect to on \'hostname2\'')
-    parser.add_argument('port_no2', help='The port number that \'db_name2\' is listening on on host \'hostname2\'')
-    parser.add_argument('username2', help='The name of the user to connect to \'db_name2\' with')
-    parser.add_argument('passwd2', help='Password for the user supplied by \'username2\'')
+    #
+    # optional arguments
+    #
+    parser.add_argument('-r', '--reverse',
+                        nargs='?',
+                        default=f_reverse_flag,
+                        help='Find data in DB2 not in DB1, the opposite of a normal run')
+    exclusive = parser.add_mutually_exclusive_group()
+    exclusive.add_argument('-t', '--tables',
+                           nargs='*',
+                           default=f_tables,
+                           help='Only run on the tables supplied by this space separated list. '
+                                'Mutually exclusive with \'--admin\'')
+    exclusive.add_argument('-x', '--admin',
+                           nargs='?',
+                           default=f_admin_flag,
+                           help='Do comparison of Oracle administrative tables, not domain tables. '
+                                'Mutually exclusive with \'--tables\'.\n'
+                                '--- INCOMPLETE FEATURE ---')
 
-    parser.add_argument('admin_username1', help='Username for the administrator user for DB1')
-    parser.add_argument('admin_passwd1', help='Password for user \'admin_username1\'')
-    parser.add_argument('admin_username2', help='Username for the administrator user for DB2')
-    parser.add_argument('admin_passwd2', help='Password for user \'admin_username2\'')
+    #
+    # positional arguments
+    #
+    db1 = parser.add_argument_group('db1')
+    db1.add_argument('hostname1',
+                     nargs='?',
+                     default=f_hostname1,
+                     help='The name of the network host DB1 resides on')
+    db1.add_argument('db_name1',
+                     nargs='?',
+                     default=f_dbname1,
+                     help='The SID of DB1 to connect to on \'hostname1\'')
+    db1.add_argument('port_no1',
+                     nargs='?',
+                     default=f_port_no1,
+                     help='The port number that \'db_name1\' is listening on on host \'hostname1\'')
+    db1.add_argument('username1',
+                     nargs='?',
+                     default=f_username1,
+                     help='The name of the user to connect to \'db_name1\' with')
+    db1.add_argument('passwd1',
+                     nargs='?',
+                     default=f_password1,
+                     help='Password for the user supplied by \'username1\'')
 
-    opts = parser.add_mutually_exclusive_group()
-    opts.add_argument('-r', '--reverse',
-                      help='Find data in DB2 not in DB1, the opposite of a normal run',
-                      action='store_true')
+    db2 = parser.add_argument_group('db2')
+    db2.add_argument('hostname2',
+                     nargs='?',
+                     default=f_hostname2,
+                     help='The name of the network host DB2 resides on')
+    db2.add_argument('db_name2',
+                     nargs='?',
+                     default=f_dbname2,
+                     help='The SID of DB2 to connect to on \'hostname2\'')
+    db2.add_argument('port_no2',
+                     nargs='?',
+                     default=f_port_no2,
+                     help='The port number that \'db_name2\' is listening on on host \'hostname2\'')
+    db2.add_argument('username2',
+                     nargs='?',
+                     default=f_username2,
+                     help='The name of the user to connect to \'db_name2\' with')
+    db2.add_argument('passwd2',
+                     nargs='?',
+                     default=f_password2,
+                     help='Password for the user supplied by \'username2\'')
 
-    opts.add_argument('-x', '--administrative',
-                      help='Run comparison on roles, privileges and other administrative '
-                           'configurations instead of regular table data',
-                      action='store_true')
+    admin = parser.add_argument_group('admin', description='Used only when the \'--admin\' flag is used.')
+    admin.add_argument('admin_username1',
+                       nargs='?',
+                       default=f_admin_username1,
+                       help='Username for the administrator user for DB1')
+    admin.add_argument('admin_passwd1',
+                       nargs='?',
+                       default=f_admin_passwd1,
+                       help='Password for user \'admin_username1\'')
+    admin.add_argument('admin_username2',
+                       nargs='?',
+                       default=f_admin_username2,
+                       help='Username for the administrator user for DB2')
+    admin.add_argument('admin_passwd2',
+                       nargs='?',
+                       default=f_admin_passwd2,
+                       help='Password for user \'admin_username2\'')
 
     with open('./out.log', 'w') as logfile:
-        try:
-            with open('dbs.properties') as p:
-                properties = jprops.load_properties(p)
+        args = parser.parse_args()
+        print(str(args))
 
-                username1 = properties['db1.username']
-                password1 = properties['db1.passwd']
-                hostname1 = properties['db1.hostname']
-                dbname1 = properties['db1.db_name']
-                port_no1 = properties['db1.port_no']
-
-                username2 = properties['db2.username']
-                password2 = properties['db2.passwd']
-                hostname2 = properties['db2.hostname']
-                dbname2 = properties['db2.db_name']
-                port_no2 = properties['db2.port_no']
-
-                reverse = properties['reverse']
-                administrative = properties['administrative']
-
-                admin_username1 = properties['db1.admin_username']
-                admin_passwd1 = properties['db1.admin_passwd']
-
-                admin_username2 = properties['db2.admin_username']
-                admin_passwd2 = properties['db2.admin_passwd']
-
-                # fixme allow for options when using file for input
-                args = parser.parse_args([
-                    hostname1, dbname1, port_no1, username1, password1,
-                    hostname2, dbname2, port_no2, username2, password2,
-                    admin_username1, admin_passwd1,
-                    admin_username2, admin_passwd2,
-                    # '--reverse' if reverse else None,
-                    # '--administrative' if administrative else None
-                ])
-        except Exception as e:
-            print('no file detected, using CLI input', file=logfile)
-            print(str(e))
-            args = parser.parse_args()
-
-        if args.administrative:
-            compare_admin_cfgs(args, logfile)
+        if args.admin:
+            compare_admin(args, logfile)
         else:
-            compare_table_data(args, logfile)
+            compare_domain(args, logfile)
 
 
 if __name__ == '__main__':
