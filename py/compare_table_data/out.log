@@ -1,0 +1,1 @@
+connecting to DB with connection string: (DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=localhost)(PORT=1522))(CONNECT_DATA=(SID=localhost)))

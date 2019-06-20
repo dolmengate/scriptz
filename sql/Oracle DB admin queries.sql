@@ -29,6 +29,7 @@ SELECT * FROM ROLE_SYS_PRIVS WHERE ROLE = 'DATA_SOURCE_ROLE'
 commit
 
 select * from all_synonyms WHERE table_owner = 'OWNER'
+select * from dba_synonyms
 
 -- grant link creation privilege
 GRANT CREATE DATABASE LINK TO DBOWNER
