@@ -1,6 +1,35 @@
 -- create new user
 CREATE USER user_name_here IDENTIFIED BY user_pw_here DEFAULT TABLESPACE users TEMPORARY TABLESPACE TEMP QUOTA UNLIMITED ON users;
 
+
+-- search all tables for column with specific value
+SET SERVEROUTPUT ON SIZE 100000
+
+DECLARE
+  match_count INTEGER;
+  v_owner VARCHAR2(255) :='TABLE OWNER';
+
+-- VARCHAR2, NUMBER, etc.
+  v_data_type VARCHAR2(255) :='VARCHAR2';
+
+  v_search_string VARCHAR2(4000) :='search string'
+
+BEGIN
+  FOR t IN (SELECT table_name, column_name FROM all_tab_cols where owner=v_owner and data_type = v_data_type) LOOP
+
+    EXECUTE IMMEDIATE 
+    'SELECT COUNT(*) FROM '||t.table_name||' WHERE '||t.column_name||' = :1'
+    INTO match_count
+    USING v_search_string;
+
+    IF match_count > 0 THEN
+      dbms_output.put_line( t.table_name ||' '||t.column_name||' '||match_count );
+    END IF;
+
+  END LOOP;
+END;
+
+
 -- create new role
 CREATE ROLE schema_owner_role;
 
@@ -79,11 +108,23 @@ BEGIN
   END LOOP;
 END;
 
+-- delete all tables starting/ending with a given string
+BEGIN
+  FOR c IN ( SELECT table_name FROM user_tables WHERE table_name LIKE 'EXT_%' )
+  LOOP
+    EXECUTE IMMEDIATE 'DROP TABLE ' || c.table_name;
+  END LOOP;
+END;
+
+
 -- user account unlock
 ALTER USER useruser ACCOUNT UNLOCK;
 -- change user password
 alter user useruser identified by user;
 ALTER USER owner IDENTIFIED BY owner;
+
+-- do both at once
+alter user myuser identified by mynewpassword account unlock;
 
 SELECT resource_name, limit
 FROM dba_profiles 
@@ -93,3 +134,7 @@ AND resource_type = 'PASSWORD';
 ALTER PROFILE DEFAULT LIMIT PASSWORD_LIFE_TIME UNLIMITED;
 ALTER PROFILE DEFAULT LIMIT FAILED_LOGIN_ATTEMPTS UNLIMITED;
 ALTER PROFILE DEFAULT LIMIT PASSWORD_LOCK_TIME UNLIMITED;
+
+
+-- view errors from procedure call
+select * from user_errors where name='SP_SELECT_CUSTOMER'
